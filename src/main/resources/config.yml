@@ -20,6 +20,8 @@
 
 settings:
   title: "&8عقاب: &c{player}"
+  # المنطقة الزمنية للتواريخ (مثال: Africa/Cairo, Asia/Riyadh)
+  timezone: "Africa/Cairo"
   reason-title: "&8اختر السبب"
   default-reason: "مخالفة القوانين"
   # شكل الدايرة بألواح الزجاج
@@ -164,6 +166,9 @@ discord:
   username: "GawharaPunish"
   title: "🚨 تقرير عقوبة"
   color: 15158332
+  server-name: "GawharaSMP"   # بيظهر تحت التقرير (سيبه فاضي لو مش عايز)
+  show-avatar: true           # صورة راس اللاعب
+  show-location: true         # العالم والإحداثيات (لو اللاعب أونلاين)
 
 messages:
   no-permission: "&cمعندكش صلاحية."
@@ -188,3 +193,6 @@ messages:
   custom-reason-prompt: "&eاكتب السبب في الشات دلوقتي (أو اكتب &fالغاء&e)."
   cancelled: "&cتم الإلغاء."
   reloaded: "&aتم إعادة تحميل الإعدادات."
+  history-header: "&8[&cسجل&8] &f{player} &8- &7إجمالي العقوبات: &c{count}"
+  history-line: "&8• &7{time} &f{action} &8| &7{reason} &8| &7{duration} &8| &7بواسطة &f{admin}"
+  history-empty: "&a{player} نضيف، مفيش عقوبات سابقة."

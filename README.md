@@ -7,4 +7,5 @@
 - باقي العقوبات (kick/ban/tempban) بتتنفذ كأوامر كونسول وتتغير من config.yml.
 
 الصلاحيات: punish.use, punish.exempt, punish.notify, punish.reload
+`/punish history <لاعب>` يعرض سجل عقوبات اللاعب (بيتحفظ في history.yml).
 البناء: JDK 25 + Maven → `mvn clean package` → target/GawharaPunish.jar

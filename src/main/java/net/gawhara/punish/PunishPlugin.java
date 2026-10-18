@@ -108,8 +108,10 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
     public void onEnable() {
         saveDefaultConfig();
         mutesFile = new File(getDataFolder(), "mutes.yml");
+        historyFile = new File(getDataFolder(), "history.yml");
         loadSettings();
         loadMutes();
+        loadHistory();
         Bukkit.getPluginManager().registerEvents(this, this);
         if (getCommand("punish") != null) {
             getCommand("punish").setExecutor(this);
@@ -215,13 +217,38 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
         sm.setOwningPlayer(Bukkit.getOfflinePlayer(id));
         sm.displayName(plain("&c" + name));
         List<Component> lore = new ArrayList<>();
-        lore.add(plain(Bukkit.getPlayer(id) != null ? "&aأونلاين" : "&cأوفلاين"));
+        Player online = Bukkit.getPlayer(id);
+        lore.add(plain(online != null ? "&aأونلاين" : "&cأوفلاين"));
+        lore.add(plain("&7UUID: &f" + id.toString().substring(0, 8) + "..."));
+        if (online != null) {
+            Location l = online.getLocation();
+            if (l.getWorld() != null) {
+                lore.add(plain("&7العالم: &f" + l.getWorld().getName()));
+            }
+            lore.add(plain("&7الإحداثيات: &f" + l.getBlockX() + " " + l.getBlockY() + " " + l.getBlockZ()));
+            lore.add(plain("&7الوضع: &f" + online.getGameMode().name()));
+            lore.add(plain("&7البنج: &f" + online.getPing() + "ms"));
+        } else {
+            long seen = Bukkit.getOfflinePlayer(id).getLastSeen();
+            if (seen > 0L) {
+                lore.add(plain("&7آخر دخول: &f" + fmtTime(seen)));
+            }
+        }
         Long until = mutes.get(id);
         if (until != null && until > System.currentTimeMillis()) {
             lore.add(plain("&6مكتوم: " + formatDuration(until - System.currentTimeMillis())));
         }
         if (frozen.contains(id)) {
             lore.add(plain("&bمجمّد"));
+        }
+        List<HistoryEntry> hist = history.getOrDefault(id, List.of());
+        lore.add(plain(" "));
+        lore.add(plain("&7العقوبات السابقة: " + (hist.isEmpty() ? "&a0" : "&c" + hist.size())));
+        int from = Math.max(0, hist.size() - 3);
+        for (int i = hist.size() - 1; i >= from; i--) {
+            HistoryEntry he = hist.get(i);
+            lore.add(plain("&8• &7" + fmtTime(he.time()) + " &f" + he.action()));
+            lore.add(plain("   &8" + he.reason()));
         }
         sm.lore(lore);
         head.setItemMeta(sm);
@@ -497,6 +524,11 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
         admin.sendMessage(msg("done", "action", cleanAction, "player", tname));
 
         if (punitive) {
+            List<HistoryEntry> prevList = history.getOrDefault(tid, List.of());
+            int previousCount = prevList.size();
+            HistoryEntry lastEntry = prevList.isEmpty() ? null : prevList.get(prevList.size() - 1);
+            recordHistory(tid, new HistoryEntry(System.currentTimeMillis(), admin.getName(), cleanAction,
+                    clean(reason), a.duration() == null ? "" : a.duration()));
             for (Player p : Bukkit.getOnlinePlayers()) {
                 if (!p.equals(admin) && p.hasPermission("punish.notify")) {
                     p.sendMessage(msg("notify", "admin", admin.getName(), "action", cleanAction,
@@ -511,7 +543,9 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
                         .replace("{reason}", reason);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
             }
-            sendDiscord(admin.getName(), cleanAction, tname, reason, a.duration());
+            sendDiscord(admin, tid, tname, cleanAction, reason, a.duration(),
+                    "mute".equals(a.type()) ? mutes.getOrDefault(tid, 0L) : 0L,
+                    target != null ? target.getLocation() : null, previousCount, lastEntry);
         }
     }
 
@@ -540,7 +574,19 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
         return sb.toString();
     }
 
-    private void sendDiscord(String admin, String action, String player, String reason, String duration) {
+    private static String field(String name, String value, boolean inline) {
+        if (value == null || value.isBlank()) {
+            value = "-";
+        }
+        if (value.length() > 1000) {
+            value = value.substring(0, 1000) + "...";
+        }
+        return "{\"name\":\"" + jsonEscape(name) + "\",\"value\":\"" + jsonEscape(value)
+                + "\",\"inline\":" + inline + "}";
+    }
+
+    private void sendDiscord(Player admin, UUID tid, String player, String action, String reason, String duration,
+                             long muteUntil, Location loc, int previousCount, HistoryEntry last) {
         ConfigurationSection d = getConfig().getConfigurationSection("discord");
         if (d == null || !d.getBoolean("enabled", false)) {
             return;
@@ -551,22 +597,44 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
             return;
         }
         String dur = (duration == null || duration.isBlank()) ? "-" : duration;
-        String title = d.getString("title", "تقرير عقوبة");
-        int color = d.getInt("color", 15158332);
-        String json = "{"
-                + "\"username\":\"" + jsonEscape(d.getString("username", "GawharaPunish")) + "\","
-                + "\"embeds\":[{"
-                + "\"title\":\"" + jsonEscape(title) + "\","
-                + "\"color\":" + color + ","
-                + "\"fields\":["
-                + "{\"name\":\"اللاعب\",\"value\":\"" + jsonEscape(player) + "\",\"inline\":true},"
-                + "{\"name\":\"الأدمن\",\"value\":\"" + jsonEscape(admin) + "\",\"inline\":true},"
-                + "{\"name\":\"العقوبة\",\"value\":\"" + jsonEscape(action) + "\",\"inline\":true},"
-                + "{\"name\":\"المدة\",\"value\":\"" + jsonEscape(dur) + "\",\"inline\":true},"
-                + "{\"name\":\"السبب\",\"value\":\"" + jsonEscape(reason) + "\",\"inline\":false}"
-                + "],"
-                + "\"timestamp\":\"" + java.time.Instant.now() + "\""
-                + "}]}";
+
+        List<String> f = new ArrayList<>();
+        f.add(field("اللاعب", player, true));
+        f.add(field("الأدمن", admin.getName(), true));
+        f.add(field("العقوبة", action, true));
+        f.add(field("المدة", dur, true));
+        if (muteUntil > 0L) {
+            long sec = muteUntil / 1000L;
+            f.add(field("ينتهي الميوت", "<t:" + sec + ":F> (<t:" + sec + ":R>)", true));
+        }
+        f.add(field("حالة اللاعب", loc != null ? "أونلاين" : "أوفلاين", true));
+        if (loc != null && loc.getWorld() != null && d.getBoolean("show-location", true)) {
+            f.add(field("المكان", loc.getWorld().getName() + " (" + loc.getBlockX() + ", "
+                    + loc.getBlockY() + ", " + loc.getBlockZ() + ")", true));
+        }
+        f.add(field("عقوبات سابقة", String.valueOf(previousCount), true));
+        f.add(field("السبب", reason, false));
+        if (last != null) {
+            f.add(field("آخر عقوبة سابقة", "<t:" + (last.time() / 1000L) + ":d> - " + last.action()
+                    + " - " + last.reason() + " (بواسطة " + last.admin() + ")", false));
+        }
+        f.add(field("UUID", "`" + tid + "`", false));
+
+        StringBuilder embed = new StringBuilder();
+        embed.append("\"title\":\"").append(jsonEscape(d.getString("title", "تقرير عقوبة"))).append("\",");
+        embed.append("\"color\":").append(d.getInt("color", 15158332)).append(',');
+        embed.append("\"fields\":[").append(String.join(",", f)).append("],");
+        if (d.getBoolean("show-avatar", true)) {
+            embed.append("\"thumbnail\":{\"url\":\"https://mc-heads.net/avatar/").append(tid).append("/128\"},");
+        }
+        String server = d.getString("server-name", "");
+        if (!server.isBlank()) {
+            embed.append("\"footer\":{\"text\":\"").append(jsonEscape(server)).append("\"},");
+        }
+        embed.append("\"timestamp\":\"").append(java.time.Instant.now()).append('"');
+
+        String json = "{\"username\":\"" + jsonEscape(d.getString("username", "GawharaPunish"))
+                + "\",\"embeds\":[{" + embed + "}]}";
         java.net.http.HttpRequest req;
         try {
             req = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
@@ -585,6 +653,106 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
             getLogger().warning("Discord webhook فشل: " + ex.getMessage());
             return null;
         });
+    }
+
+    // ---------------------------------------------------------------- history
+
+    record HistoryEntry(long time, String admin, String action, String reason, String duration) {
+    }
+
+    private static final int MAX_HISTORY = 50;
+    private final Map<UUID, List<HistoryEntry>> history = new HashMap<>();
+    private File historyFile;
+
+    private static String clean(String s) {
+        return s == null ? "" : s.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ');
+    }
+
+    private java.time.ZoneId zone() {
+        try {
+            return java.time.ZoneId.of(getConfig().getString("settings.timezone", "Africa/Cairo"));
+        } catch (Exception ex) {
+            return java.time.ZoneId.systemDefault();
+        }
+    }
+
+    private String fmtTime(long ms) {
+        return java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                .withZone(zone()).format(java.time.Instant.ofEpochMilli(ms));
+    }
+
+    private void loadHistory() {
+        history.clear();
+        if (!historyFile.exists()) {
+            return;
+        }
+        YamlConfiguration y = YamlConfiguration.loadConfiguration(historyFile);
+        ConfigurationSection sec = y.getConfigurationSection("history");
+        if (sec == null) {
+            return;
+        }
+        for (String key : sec.getKeys(false)) {
+            UUID id;
+            try {
+                id = UUID.fromString(key);
+            } catch (IllegalArgumentException ex) {
+                continue;
+            }
+            List<HistoryEntry> list = new ArrayList<>();
+            for (String line : sec.getStringList(key)) {
+                String[] p = line.split("\t", -1);
+                if (p.length < 5) {
+                    continue;
+                }
+                try {
+                    list.add(new HistoryEntry(Long.parseLong(p[0]), p[1], p[2], p[3], p[4]));
+                } catch (NumberFormatException ignored) {
+                    // bad line
+                }
+            }
+            if (!list.isEmpty()) {
+                history.put(id, list);
+            }
+        }
+    }
+
+    private void saveHistory() {
+        YamlConfiguration y = new YamlConfiguration();
+        for (Map.Entry<UUID, List<HistoryEntry>> e : history.entrySet()) {
+            List<String> lines = new ArrayList<>();
+            for (HistoryEntry h : e.getValue()) {
+                lines.add(h.time() + "\t" + clean(h.admin()) + "\t" + clean(h.action()) + "\t"
+                        + clean(h.reason()) + "\t" + clean(h.duration()));
+            }
+            y.set("history." + e.getKey(), lines);
+        }
+        try {
+            getDataFolder().mkdirs();
+            y.save(historyFile);
+        } catch (IOException ex) {
+            getLogger().warning("تعذر حفظ history.yml: " + ex.getMessage());
+        }
+    }
+
+    private void recordHistory(UUID id, HistoryEntry entry) {
+        List<HistoryEntry> list = history.computeIfAbsent(id, k -> new ArrayList<>());
+        list.add(entry);
+        while (list.size() > MAX_HISTORY) {
+            list.remove(0);
+        }
+        saveHistory();
+    }
+
+    private Map.Entry<UUID, String> resolve(String name) {
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) {
+            return Map.entry(online.getUniqueId(), online.getName());
+        }
+        OfflinePlayer off = Bukkit.getOfflinePlayerIfCached(name);
+        if (off == null) {
+            return null;
+        }
+        return Map.entry(off.getUniqueId(), off.getName() != null ? off.getName() : name);
     }
 
     // ---------------------------------------------------------------- chat / mute / freeze
@@ -726,6 +894,27 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
             admin.sendMessage(msg("no-permission"));
             return true;
         }
+        if (args.length == 2 && args[0].equalsIgnoreCase("history")) {
+            Map.Entry<UUID, String> r = resolve(args[1]);
+            if (r == null) {
+                admin.sendMessage(msg("not-found"));
+                return true;
+            }
+            List<HistoryEntry> hist = history.getOrDefault(r.getKey(), List.of());
+            if (hist.isEmpty()) {
+                admin.sendMessage(msg("history-empty", "player", r.getValue()));
+                return true;
+            }
+            admin.sendMessage(msg("history-header", "player", r.getValue(), "count", String.valueOf(hist.size())));
+            int from = Math.max(0, hist.size() - 15);
+            for (int i = hist.size() - 1; i >= from; i--) {
+                HistoryEntry he = hist.get(i);
+                admin.sendMessage(msg("history-line", "time", fmtTime(he.time()), "action", he.action(),
+                        "reason", he.reason(), "admin", he.admin(),
+                        "duration", he.duration().isBlank() ? "-" : he.duration()));
+            }
+            return true;
+        }
         if (args.length < 1) {
             admin.sendMessage(msg("usage"));
             return true;
@@ -762,6 +951,16 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
             }
             if ("reload".startsWith(p) && sender.hasPermission("punish.reload")) {
                 out.add("reload");
+            }
+            if ("history".startsWith(p)) {
+                out.add("history");
+            }
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("history")) {
+            String p = args[1].toLowerCase();
+            for (Player pl : Bukkit.getOnlinePlayers()) {
+                if (pl.getName().toLowerCase().startsWith(p)) {
+                    out.add(pl.getName());
+                }
             }
         }
         return out;
