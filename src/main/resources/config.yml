@@ -151,6 +151,28 @@ actions:
     name: "&fشوف الإنفنتوري"
     type: invsee
     needs-online: true
+  spectate:
+    slot: 12
+    icon: SPYGLASS
+    name: "&bراقب اللاعب"
+    lore: ["&7تشوف من عيونه (وضع Spectator)", "&7Shift = كاميرا حرة"]
+    type: spectate
+    needs-online: true
+    permission: punish.spectate
+  spectate-view:
+    slot: 14
+    icon: PAINTING
+    name: "&bغيّر المنظور"
+    lore: ["&7من عيونه ← من ورا اللاعب ← كاميرا حرة", "&7أو اكتب /punish view"]
+    type: spectate-view
+    permission: punish.spectate
+  spectate-stop:
+    slot: 40
+    icon: RED_DYE
+    name: "&cوقّف المراقبة"
+    lore: ["&7ترجع لمكانك ووضعك الأصلي", "&7أو اكتب /punish unspectate"]
+    type: spectate-stop
+    permission: punish.spectate
   echest:
     slot: 32
     icon: ENDER_CHEST
@@ -196,3 +218,14 @@ messages:
   history-header: "&8[&cسجل&8] &f{player} &8- &7إجمالي العقوبات: &c{count}"
   history-line: "&8• &7{time} &f{action} &8| &7{reason} &8| &7{duration} &8| &7بواسطة &f{admin}"
   history-empty: "&a{player} نضيف، مفيش عقوبات سابقة."
+  spectate-start: "&aبتراقب دلوقتي: &f{player} &8| &7المنظور: &f{view}"
+  spectate-view: "&aالمنظور: &f{view}"
+  spectate-stop: "&aرجعت لمكانك ووضعك الأصلي."
+  not-spectating: "&cانت مش بتراقب حد."
+  spectate-detached: "&eنزلت من منظور اللاعب، دلوقتي كاميرا حرة."
+  spectate-target-left: "&e{player} خرج من السيرفر، انتهت المراقبة."
+  spectate-btn-view: "&e[تغيير المنظور]"
+  spectate-btn-stop: "&c[خروج]"
+  view-first: "منظور اللاعب (من عيونه)"
+  view-third: "منظور من ورا اللاعب"
+  view-free: "كاميرا حرة"

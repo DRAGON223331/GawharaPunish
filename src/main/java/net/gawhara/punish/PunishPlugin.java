@@ -2,11 +2,13 @@ package net.gawhara.punish;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
@@ -22,15 +24,19 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerStopSpectatingEntityEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.IOException;
@@ -61,7 +67,8 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
     private static final int BOTTOM_SLOT = 31;
     private static final int CUSTOM_REASON_INDEX = RING.length - 1;
 
-    private static final Set<String> TOOL_TYPES = Set.of("tp", "bring", "invsee", "enderchest", "unmute");
+    private static final Set<String> TOOL_TYPES = Set.of("tp", "bring", "invsee", "enderchest", "unmute",
+            "spectate", "spectate-view", "spectate-stop");
     private static final Pattern DURATION = Pattern.compile("(\\d+)([smhdw])");
 
     record Action(String id, String name, List<String> lore, Material icon, int slot, String type,
@@ -121,6 +128,12 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
 
     @Override
     public void onDisable() {
+        for (UUID id : new ArrayList<>(spectating.keySet())) {
+            Player sp = Bukkit.getPlayer(id);
+            if (sp != null) {
+                stopSpectate(sp, false);
+            }
+        }
         saveMutes();
     }
 
@@ -510,6 +523,21 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
                     target.sendMessage(msg("freeze-on"));
                 }
             }
+            case "spectate" -> {
+                if (!startSpectate(admin, target)) {
+                    return;
+                }
+            }
+            case "spectate-view" -> {
+                if (!cycleView(admin)) {
+                    return;
+                }
+            }
+            case "spectate-stop" -> {
+                if (!stopSpectate(admin, true)) {
+                    return;
+                }
+            }
             case "tp" -> admin.teleport(target.getLocation());
             case "bring" -> target.teleport(admin.getLocation());
             case "invsee" -> admin.openInventory(target.getInventory());
@@ -653,6 +681,153 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
             getLogger().warning("Discord webhook فشل: " + ex.getMessage());
             return null;
         });
+    }
+
+    // ---------------------------------------------------------------- spectate / مراقبة
+
+    enum View { FIRST, THIRD, FREE }
+
+    static final class SpecState {
+        UUID target;
+        Location origin;
+        GameMode mode;
+        View view = View.FIRST;
+        BukkitTask task;
+        boolean internal;
+    }
+
+    private final Map<UUID, SpecState> spectating = new HashMap<>();
+
+    private String viewName(View v) {
+        return switch (v) {
+            case FIRST -> getConfig().getString("messages.view-first", "منظور اللاعب (من عيونه)");
+            case THIRD -> getConfig().getString("messages.view-third", "منظور من ورا اللاعب");
+            case FREE -> getConfig().getString("messages.view-free", "كاميرا حرة");
+        };
+    }
+
+    private boolean startSpectate(Player admin, Player target) {
+        if (admin.getUniqueId().equals(target.getUniqueId())) {
+            admin.sendMessage(msg("self"));
+            return false;
+        }
+        SpecState st = spectating.get(admin.getUniqueId());
+        if (st == null) {
+            st = new SpecState();
+            st.origin = admin.getLocation().clone();
+            st.mode = admin.getGameMode();
+            spectating.put(admin.getUniqueId(), st);
+        }
+        st.target = target.getUniqueId();
+        applyView(admin, st);
+        admin.sendMessage(msg("spectate-start", "player", target.getName(), "view", viewName(st.view)));
+        sendSpecControls(admin);
+        return true;
+    }
+
+    private boolean cycleView(Player admin) {
+        SpecState st = spectating.get(admin.getUniqueId());
+        if (st == null) {
+            admin.sendMessage(msg("not-spectating"));
+            return false;
+        }
+        View[] all = View.values();
+        st.view = all[(st.view.ordinal() + 1) % all.length];
+        applyView(admin, st);
+        admin.sendMessage(msg("spectate-view", "view", viewName(st.view)));
+        sendSpecControls(admin);
+        return true;
+    }
+
+    private boolean stopSpectate(Player admin, boolean notify) {
+        SpecState st = spectating.remove(admin.getUniqueId());
+        if (st == null) {
+            if (notify) {
+                admin.sendMessage(msg("not-spectating"));
+            }
+            return false;
+        }
+        if (st.task != null) {
+            st.task.cancel();
+            st.task = null;
+        }
+        admin.setSpectatorTarget(null);
+        admin.setGameMode(st.mode);
+        admin.teleport(st.origin);
+        if (notify) {
+            admin.sendMessage(msg("spectate-stop"));
+        }
+        return true;
+    }
+
+    private void applyView(Player admin, SpecState st) {
+        Player target = Bukkit.getPlayer(st.target);
+        if (target == null) {
+            admin.sendMessage(msg("target-offline"));
+            stopSpectate(admin, false);
+            return;
+        }
+        if (st.task != null) {
+            st.task.cancel();
+            st.task = null;
+        }
+        if (admin.getGameMode() != GameMode.SPECTATOR) {
+            admin.setGameMode(GameMode.SPECTATOR);
+        }
+        st.internal = true;
+        try {
+            admin.setSpectatorTarget(null);
+            switch (st.view) {
+                case FIRST -> {
+                    admin.teleport(target.getLocation());
+                    Bukkit.getScheduler().runTaskLater(this, () -> {
+                        Player t = Bukkit.getPlayer(st.target);
+                        if (spectating.get(admin.getUniqueId()) == st && st.view == View.FIRST
+                                && admin.isOnline() && t != null) {
+                            st.internal = true;
+                            try {
+                                admin.setSpectatorTarget(t);
+                            } finally {
+                                st.internal = false;
+                            }
+                        }
+                    }, 3L);
+                }
+                case THIRD -> st.task = Bukkit.getScheduler()
+                        .runTaskTimer(this, () -> followThird(admin, st), 0L, 1L);
+                case FREE -> admin.teleport(target.getLocation().add(0, 2, 0));
+            }
+        } finally {
+            st.internal = false;
+        }
+    }
+
+    private void followThird(Player admin, SpecState st) {
+        Player t = Bukkit.getPlayer(st.target);
+        if (t == null || !admin.isOnline() || spectating.get(admin.getUniqueId()) != st) {
+            if (st.task != null) {
+                st.task.cancel();
+            }
+            return;
+        }
+        Location eye = t.getEyeLocation();
+        Vector dir = eye.getDirection().setY(0);
+        if (dir.lengthSquared() < 1.0E-4) {
+            dir = new Vector(0, 0, 1);
+        } else {
+            dir.normalize();
+        }
+        Location pos = eye.clone().subtract(dir.multiply(3.5)).add(0, 1.2, 0);
+        pos.setDirection(eye.toVector().subtract(pos.toVector()));
+        admin.teleport(pos);
+    }
+
+    private void sendSpecControls(Player admin) {
+        Component view = LEGACY.deserialize(getConfig().getString("messages.spectate-btn-view", "&e[تغيير المنظور]"))
+                .clickEvent(ClickEvent.runCommand("/punish view"));
+        Component stop = LEGACY.deserialize(getConfig().getString("messages.spectate-btn-stop", "&c[خروج]"))
+                .clickEvent(ClickEvent.runCommand("/punish unspectate"));
+        admin.sendMessage(view.append(Component.text("  ")).append(stop));
     }
 
     // ---------------------------------------------------------------- history
@@ -835,7 +1010,50 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
-        pending.remove(e.getPlayer().getUniqueId());
+        Player q = e.getPlayer();
+        pending.remove(q.getUniqueId());
+        // الأدمن خرج وهو بيراقب: رجّعه لمكانه ووضعه الأصلي
+        if (spectating.containsKey(q.getUniqueId())) {
+            stopSpectate(q, false);
+        }
+        // اللاعب المراقَب خرج: وقّف المراقبة عند كل اللي بيشوفوه
+        for (UUID wid : new ArrayList<>(spectating.keySet())) {
+            SpecState st = spectating.get(wid);
+            Player w = Bukkit.getPlayer(wid);
+            if (st != null && st.target.equals(q.getUniqueId()) && w != null) {
+                stopSpectate(w, false);
+                w.sendMessage(msg("spectate-target-left", "player", q.getName()));
+            }
+        }
+    }
+
+    @EventHandler
+    public void onTargetWorldChange(PlayerChangedWorldEvent e) {
+        UUID tid = e.getPlayer().getUniqueId();
+        for (UUID wid : new ArrayList<>(spectating.keySet())) {
+            SpecState st = spectating.get(wid);
+            if (st == null || !st.target.equals(tid)) {
+                continue;
+            }
+            Bukkit.getScheduler().runTaskLater(this, () -> {
+                Player w = Bukkit.getPlayer(wid);
+                if (w != null && spectating.get(wid) == st) {
+                    applyView(w, st);
+                }
+            }, 5L);
+        }
+    }
+
+    @EventHandler
+    public void onStopSpectating(PlayerStopSpectatingEntityEvent e) {
+        SpecState st = spectating.get(e.getPlayer().getUniqueId());
+        if (st == null || st.internal || st.view != View.FIRST) {
+            return;
+        }
+        // الأدمن ضغط Shift ونزل من منظور اللاعب: خليه كاميرا حرة
+        st.view = View.FREE;
+        e.getPlayer().sendMessage(msg("spectate-detached"));
+        sendSpecControls(e.getPlayer());
     }
 
     // ---------------------------------------------------------------- persistence
@@ -892,6 +1110,29 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
         }
         if (!admin.hasPermission("punish.use")) {
             admin.sendMessage(msg("no-permission"));
+            return true;
+        }
+        String sub = args.length >= 1 ? args[0].toLowerCase() : "";
+        if (sub.equals("spectate") || sub.equals("spec") || sub.equals("view")
+                || sub.equals("unspectate") || sub.equals("unspec")) {
+            if (!admin.hasPermission("punish.spectate")) {
+                admin.sendMessage(msg("no-permission"));
+                return true;
+            }
+            if (sub.equals("view")) {
+                cycleView(admin);
+            } else if (sub.equals("unspectate") || sub.equals("unspec")) {
+                stopSpectate(admin, true);
+            } else if (args.length == 2) {
+                Player t = Bukkit.getPlayerExact(args[1]);
+                if (t == null) {
+                    admin.sendMessage(msg("target-offline"));
+                } else {
+                    startSpectate(admin, t);
+                }
+            } else {
+                admin.sendMessage(msg("usage"));
+            }
             return true;
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("history")) {
@@ -952,10 +1193,13 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
             if ("reload".startsWith(p) && sender.hasPermission("punish.reload")) {
                 out.add("reload");
             }
-            if ("history".startsWith(p)) {
-                out.add("history");
+            for (String sc : List.of("history", "spectate", "view", "unspectate")) {
+                if (sc.startsWith(p)) {
+                    out.add(sc);
+                }
             }
-        } else if (args.length == 2 && args[0].equalsIgnoreCase("history")) {
+        } else if (args.length == 2 && (args[0].equalsIgnoreCase("history")
+                || args[0].equalsIgnoreCase("spectate") || args[0].equalsIgnoreCase("spec"))) {
             String p = args[1].toLowerCase();
             for (Player pl : Bukkit.getOnlinePlayers()) {
                 if (pl.getName().toLowerCase().startsWith(p)) {

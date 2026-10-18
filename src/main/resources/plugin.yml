@@ -23,3 +23,6 @@ permissions:
   punish.reload:
     description: /punish reload
     default: op
+  punish.spectate:
+    description: مراقبة اللاعبين وتغيير المنظور
+    default: op
