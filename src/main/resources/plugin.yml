@@ -1,0 +1,25 @@
+name: GawharaPunish
+version: 1.0.0
+main: net.gawhara.punish.PunishPlugin
+api-version: '26.1'
+author: GawharaSMP
+description: قايمة دايرية لأوامر الأدمن والعقوبات
+commands:
+  punish:
+    description: افتح قايمة العقوبات للاعب
+    usage: /punish <لاعب>
+    aliases: [pmenu, adminmenu]
+    permission: punish.use
+permissions:
+  punish.use:
+    description: فتح قايمة العقوبات
+    default: op
+  punish.exempt:
+    description: اللاعب ده محمي من العقوبات
+    default: false
+  punish.notify:
+    description: استقبال إشعارات العقوبات
+    default: op
+  punish.reload:
+    description: /punish reload
+    default: op

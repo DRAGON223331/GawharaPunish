@@ -1,0 +1,181 @@
+# ===== GawharaPunish =====
+# الأمر:  /punish <لاعب>   (أو /pmenu أو /adminmenu)
+#
+# القايمة على شكل دايرة. كل زرار = action. تقدر تضيف/تعدل/تشيل أي واحد.
+# أماكن الدايرة (slots) المتاحة:
+#   الحلقة الخارجية: 4 5 15 25 34 42 50 49 48 38 28 19 11 3
+#   الحلقة الداخلية: 12 13 14 21 23 30 32 39 40 41
+#   (22 = راس اللاعب، 31 = زرار الإغلاق/الرجوع - متتغيرش)
+#
+# أنواع الـ type:
+#   command    ينفذ أوامر من الكونسول (commands) - بيدعم {player} {admin} {reason} {duration}
+#   warn       تحذير للاعب (شات + عنوان)
+#   mute       كتم مدمج في البلجن (duration: 10m / 1h / 1d / 1d12h ...)
+#   unmute     فك الكتم
+#   freeze     تجميد/فك تجميد
+#   tp         الأدمن يتنقل للاعب
+#   bring      يسحب اللاعب للأدمن
+#   invsee     يفتح إنفنتوري اللاعب
+#   enderchest يفتح إندر شيست اللاعب
+
+settings:
+  title: "&8عقاب: &c{player}"
+  reason-title: "&8اختر السبب"
+  default-reason: "مخالفة القوانين"
+  # شكل الدايرة بألواح الزجاج
+  background: true
+  background-material: LIGHT_BLUE_STAINED_GLASS_PANE
+  # أوامر تتنفذ بعد أي عقوبة (فاضية افتراضيًا). مثال لإرسالها لديسكورد:
+  #   - "discord broadcast #reports العقوبة: {action} | {player} | بواسطة {admin} | {reason}"
+  after-punish-commands: []
+  # أوامر ممنوعة على المكتوم
+  mute-blocked-commands: [msg, tell, w, r, me, whisper, reply, say]
+
+# أسباب جاهزة (لحد 13 سبب). بيتضاف زرار "سبب مخصص" تلقائي
+reasons:
+  - "هاك / غش"
+  - "سب وشتم"
+  - "سبام / إعلانات"
+  - "تخريب"
+  - "سرقة"
+  - "استغلال باج / تكرار"
+  - "تهديد / تنمر"
+  - "انتحال شخصية"
+
+actions:
+  warn:
+    slot: 4
+    icon: OAK_SIGN
+    name: "&e⚠ تحذير"
+    lore: ["&7تحذير للاعب (شات + عنوان)"]
+    type: warn
+    ask-reason: true
+    needs-online: true
+  mute-10m:
+    slot: 5
+    icon: NOTE_BLOCK
+    name: "&6ميوت 10 دقايق"
+    lore: ["&7كتم من الشات"]
+    type: mute
+    duration: 10m
+    ask-reason: true
+  mute-1h:
+    slot: 15
+    icon: JUKEBOX
+    name: "&6ميوت ساعة"
+    lore: ["&7كتم من الشات"]
+    type: mute
+    duration: 1h
+    ask-reason: true
+  mute-1d:
+    slot: 25
+    icon: IRON_BARS
+    name: "&6ميوت يوم"
+    lore: ["&7كتم من الشات"]
+    type: mute
+    duration: 1d
+    ask-reason: true
+  unmute:
+    slot: 34
+    icon: LIME_DYE
+    name: "&aفك الميوت"
+    type: unmute
+  kick:
+    slot: 42
+    icon: LEATHER_BOOTS
+    name: "&cطرد"
+    lore: ["&7طرد من السيرفر"]
+    type: command
+    commands: ["kick {player} {reason}"]
+    ask-reason: true
+    needs-online: true
+  tempban-1d:
+    slot: 50
+    icon: CLOCK
+    name: "&cباند يوم"
+    lore: ["&7محتاج بلجن يدعم tempban", "&7(EssentialsX / LiteBans / AdvancedBan)"]
+    type: command
+    duration: 1d
+    commands: ["tempban {player} {duration} {reason}"]
+    ask-reason: true
+  tempban-7d:
+    slot: 49
+    icon: COMPASS
+    name: "&cباند 7 أيام"
+    lore: ["&7محتاج بلجن يدعم tempban"]
+    type: command
+    duration: 7d
+    commands: ["tempban {player} {duration} {reason}"]
+    ask-reason: true
+  tempban-30d:
+    slot: 48
+    icon: TNT
+    name: "&4باند 30 يوم"
+    lore: ["&7محتاج بلجن يدعم tempban"]
+    type: command
+    duration: 30d
+    commands: ["tempban {player} {duration} {reason}"]
+    ask-reason: true
+  ban:
+    slot: 38
+    icon: WITHER_SKELETON_SKULL
+    name: "&4باند نهائي"
+    lore: ["&7حظر دائم (أمر ban العادي)"]
+    type: command
+    commands: ["ban {player} {reason}"]
+    ask-reason: true
+  freeze:
+    slot: 13
+    icon: BLUE_ICE
+    name: "&bتجميد / فك تجميد"
+    lore: ["&7يمنع اللاعب من الحركة"]
+    type: freeze
+    needs-online: true
+  tp:
+    slot: 21
+    icon: ENDER_PEARL
+    name: "&dانتقل للاعب"
+    type: tp
+    needs-online: true
+  bring:
+    slot: 23
+    icon: ENDER_EYE
+    name: "&dاسحب اللاعب ليك"
+    type: bring
+    needs-online: true
+  invsee:
+    slot: 30
+    icon: CHEST
+    name: "&fشوف الإنفنتوري"
+    type: invsee
+    needs-online: true
+  echest:
+    slot: 32
+    icon: ENDER_CHEST
+    name: "&fشوف الإندر شيست"
+    type: enderchest
+    needs-online: true
+
+messages:
+  no-permission: "&cمعندكش صلاحية."
+  usage: "&cالاستخدام: &f/punish <لاعب>"
+  not-found: "&cمفيش لاعب بالاسم ده."
+  target-offline: "&cاللاعب ده مش أونلاين."
+  self: "&cمينفعش تعاقب نفسك."
+  exempt: "&cاللاعب ده محمي من العقوبات."
+  cmd-failed: "&cالأمر فشل أو مش موجود: &f/{cmd}"
+  bad-duration: "&cمدة غير صحيحة في الإعدادات."
+  not-muted: "&cاللاعب ده مش مكتوم."
+  done: "&aتم: &f{action} &7على &f{player}"
+  notify: "&8[&cعقاب&8] &f{admin} &8← &c{action} &8← &f{player} &8| &7{reason}"
+  warn-title: "&c⚠ تحذير"
+  warn-sub: "&f{reason}"
+  warn-chat: "&c[تحذير] &f{reason}"
+  mute-target: "&cتم كتمك لمدة &f{duration} &cبسبب: &f{reason}"
+  unmute-target: "&aتم فك الكتم عنك."
+  muted: "&cانت مكتوم، فاضل: &f{time}"
+  freeze-on: "&cتم تجميدك من الإدارة، متتحركش."
+  freeze-off: "&aتم فك التجميد عنك."
+  custom-reason-prompt: "&eاكتب السبب في الشات دلوقتي (أو اكتب &fالغاء&e)."
+  cancelled: "&cتم الإلغاء."
+  reloaded: "&aتم إعادة تحميل الإعدادات."
