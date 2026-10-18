@@ -156,6 +156,15 @@ actions:
     type: enderchest
     needs-online: true
 
+# ===== ديسكورد: إرسال كل عقوبة لروم الريبورت =====
+# اعمل Webhook: إعدادات الروم > Integrations > Webhooks > New Webhook > Copy Webhook URL
+discord:
+  enabled: false
+  webhook-url: ""
+  username: "GawharaPunish"
+  title: "🚨 تقرير عقوبة"
+  color: 15158332
+
 messages:
   no-permission: "&cمعندكش صلاحية."
   usage: "&cالاستخدام: &f/punish <لاعب>"

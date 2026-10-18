@@ -511,7 +511,80 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
                         .replace("{reason}", reason);
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd);
             }
+            sendDiscord(admin.getName(), cleanAction, tname, reason, a.duration());
         }
+    }
+
+    // ---------------------------------------------------------------- discord webhook
+
+    private static final java.net.http.HttpClient HTTP = java.net.http.HttpClient.newHttpClient();
+
+    private static String jsonEscape(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (char c : s.toCharArray()) {
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> { }
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    private void sendDiscord(String admin, String action, String player, String reason, String duration) {
+        ConfigurationSection d = getConfig().getConfigurationSection("discord");
+        if (d == null || !d.getBoolean("enabled", false)) {
+            return;
+        }
+        String url = d.getString("webhook-url", "");
+        if (url.isBlank() || !url.startsWith("https://")) {
+            getLogger().warning("discord.webhook-url غير صحيح في config.yml");
+            return;
+        }
+        String dur = (duration == null || duration.isBlank()) ? "-" : duration;
+        String title = d.getString("title", "تقرير عقوبة");
+        int color = d.getInt("color", 15158332);
+        String json = "{"
+                + "\"username\":\"" + jsonEscape(d.getString("username", "GawharaPunish")) + "\","
+                + "\"embeds\":[{"
+                + "\"title\":\"" + jsonEscape(title) + "\","
+                + "\"color\":" + color + ","
+                + "\"fields\":["
+                + "{\"name\":\"اللاعب\",\"value\":\"" + jsonEscape(player) + "\",\"inline\":true},"
+                + "{\"name\":\"الأدمن\",\"value\":\"" + jsonEscape(admin) + "\",\"inline\":true},"
+                + "{\"name\":\"العقوبة\",\"value\":\"" + jsonEscape(action) + "\",\"inline\":true},"
+                + "{\"name\":\"المدة\",\"value\":\"" + jsonEscape(dur) + "\",\"inline\":true},"
+                + "{\"name\":\"السبب\",\"value\":\"" + jsonEscape(reason) + "\",\"inline\":false}"
+                + "],"
+                + "\"timestamp\":\"" + java.time.Instant.now() + "\""
+                + "}]}";
+        java.net.http.HttpRequest req;
+        try {
+            req = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(json, java.nio.charset.StandardCharsets.UTF_8))
+                    .build();
+        } catch (IllegalArgumentException ex) {
+            getLogger().warning("discord.webhook-url غير صحيح: " + ex.getMessage());
+            return;
+        }
+        HTTP.sendAsync(req, java.net.http.HttpResponse.BodyHandlers.ofString()).thenAccept(r -> {
+            if (r.statusCode() / 100 != 2) {
+                getLogger().warning("Discord webhook فشل: HTTP " + r.statusCode() + " " + r.body());
+            }
+        }).exceptionally(ex -> {
+            getLogger().warning("Discord webhook فشل: " + ex.getMessage());
+            return null;
+        });
     }
 
     // ---------------------------------------------------------------- chat / mute / freeze
