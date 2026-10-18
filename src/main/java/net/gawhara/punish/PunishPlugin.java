@@ -343,7 +343,7 @@ public final class PunishPlugin extends JavaPlugin implements Listener, TabExecu
 
         if (h.kind == Kind.MAIN) {
             if (slot == BOTTOM_SLOT) {
-                Bukkit.getScheduler().runTask(this, admin::closeInventory);
+                Bukkit.getScheduler().runTask(this, () -> admin.closeInventory());
                 return;
             }
             Action a = bySlot.get(slot);
